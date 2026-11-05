@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS payments (
+  payment_id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  order_id INTEGER NOT NULL,
+  amount TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('CHARGED', 'REFUNDED')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS finance_records (
+  record_id TEXT PRIMARY KEY,
+  order_id INTEGER NOT NULL,
+  amount TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'PAID', 'REFUSED')),
+  processed_by INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

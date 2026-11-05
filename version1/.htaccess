@@ -1,0 +1,3 @@
+<Files "security_audit.log">
+    Require all denied
+</Files>

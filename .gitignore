@@ -1,0 +1,5 @@
+version1/security_audit.log
+version3/.env
+version3/auth-service/vendor/
+**/__pycache__/
+**/*.py[cod]

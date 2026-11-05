@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS deliveries (
+  shipment_id TEXT PRIMARY KEY,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  order_id INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('CREATED', 'CANCELLED')),
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

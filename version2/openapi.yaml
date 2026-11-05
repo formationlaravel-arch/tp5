@@ -1,0 +1,563 @@
+openapi: 3.0.3
+info:
+  title: MPIN E-Commerce API MVC
+  version: 1.0.0
+  description: >-
+    API stateless de l'étude de cas e-commerce. POST /api/v1/auth/login échange
+    les identifiants contre un JWT HS256. Toutes les opérations protégées
+    utilisent Authorization: Bearer <TOKEN>. Les rôles métier et les parcours
+    restent identiques aux versions monolithe et microservices.
+servers:
+  - url: http://localhost/lab_mpin/version2/public/index.php
+    description: WAMP local avec PATH_INFO
+tags:
+  - name: Authentication
+  - name: Products
+  - name: Orders
+  - name: Deliveries
+  - name: Payments
+paths:
+  /health:
+    get:
+      tags: [Authentication]
+      summary: Vérifie la disponibilité de l'API
+      security: []
+      responses:
+        '200':
+          description: API disponible
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Authentifie un utilisateur et émet un JWT HS256
+      description: Route publique. La réponse access_token est à transmettre comme Bearer token aux routes protégées.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: customer
+                password:
+                  type: string
+                  format: password
+                  example: Customer123!
+      responses:
+        '200':
+          description: JWT émis pour une heure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Valide le JWT et retourne l'utilisateur courant
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Identité et rôle du détenteur du JWT
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Identity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/products:
+    get:
+      tags: [Products]
+      summary: Consulte le catalogue et les quantités disponibles
+      security: []
+      responses:
+        '200':
+          description: Catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+  /api/v1/products/restock:
+    post:
+      tags: [Products]
+      summary: Réapprovisionne le stock
+      description: Réservé à ADMIN et INVENTORY_MANAGER.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, quantity]
+              properties:
+                product_id:
+                  type: integer
+                  minimum: 1
+                  example: 1
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000
+                  example: 10
+      responses:
+        '200':
+          description: Stock mis à jour
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/orders:
+    get:
+      tags: [Orders]
+      summary: Consulte les commandes visibles par le rôle connecté
+      description: CUSTOMER reçoit ses commandes; ADMIN, ORDER_MANAGER, DELIVERY_MANAGER et FINANCE_OFFICER voient toutes les commandes.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Commandes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Orders]
+      summary: Crée une commande et décrémente le stock atomiquement
+      description: Réservé à CUSTOMER. La commande, la réservation de stock et le paiement initial PENDING partagent la transaction SQL du monolithe.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, quantity]
+              properties:
+                product_id:
+                  type: integer
+                  minimum: 1
+                  example: 1
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+                  example: 2
+      responses:
+        '201':
+          description: Commande créée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/orders/status:
+    post:
+      tags: [Orders]
+      summary: Modifie le statut d'une commande
+      description: Réservé à ADMIN et ORDER_MANAGER.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order_id, status]
+              properties:
+                order_id:
+                  type: integer
+                  minimum: 1
+                  example: 12
+                status:
+                  type: string
+                  enum: [PENDING, PAID, SHIPPED, CANCELLED]
+      responses:
+        '200':
+          description: Statut mis à jour
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      status:
+                        type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/deliveries:
+    get:
+      tags: [Deliveries]
+      summary: Liste les livraisons
+      description: Réservé à ADMIN et DELIVERY_MANAGER.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Livraisons
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Delivery'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Deliveries]
+      summary: Crée une livraison pour une commande
+      description: Réservé à ADMIN et DELIVERY_MANAGER.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order_id]
+              properties:
+                order_id:
+                  type: integer
+                  minimum: 1
+                  example: 12
+      responses:
+        '201':
+          description: Livraison créée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Delivery'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/deliveries/status:
+    post:
+      tags: [Deliveries]
+      summary: Modifie le statut d'une livraison
+      description: Réservé à ADMIN et DELIVERY_MANAGER.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [delivery_id, status]
+              properties:
+                delivery_id:
+                  type: integer
+                  minimum: 1
+                  example: 3
+                status:
+                  type: string
+                  enum: [PENDING, IN_TRANSIT, DELIVERED]
+      responses:
+        '200':
+          description: Statut mis à jour
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/payments:
+    get:
+      tags: [Payments]
+      summary: Liste les paiements
+      description: Réservé à ADMIN et FINANCE_OFFICER.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Paiements
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Payments]
+      summary: Enregistre le résultat d'un paiement simulé
+      description: Réservé à ADMIN et FINANCE_OFFICER.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order_id, amount, status]
+              properties:
+                order_id:
+                  type: integer
+                  minimum: 1
+                  example: 12
+                amount:
+                  type: number
+                  format: double
+                  exclusiveMinimum: 0
+                  example: 79.9
+                status:
+                  type: string
+                  enum: [PENDING, PAID, REFUSED]
+      responses:
+        '201':
+          description: Paiement enregistré
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          description: JWT à utiliser comme jeton Bearer dans les requêtes protégées
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          example: 3600
+    Identity:
+      type: object
+      required: [id, username, role]
+      properties:
+        id:
+          type: integer
+          example: 6
+        username:
+          type: string
+          example: customer
+        role:
+          type: string
+          enum: [ADMIN, INVENTORY_MANAGER, ORDER_MANAGER, DELIVERY_MANAGER, FINANCE_OFFICER, CUSTOMER]
+    Product:
+      type: object
+      required: [id, name, price, stock]
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Clavier mécanique
+        price:
+          type: string
+          example: '79.90'
+        stock:
+          type: integer
+          example: 15
+    Order:
+      type: object
+      required: [id, product_id, product_name, quantity, total, status]
+      properties:
+        id:
+          type: integer
+          example: 1
+        user_id:
+          type: integer
+          example: 6
+        product_id:
+          type: integer
+          example: 1
+        product_name:
+          type: string
+          example: Clavier mécanique
+        quantity:
+          type: integer
+          example: 2
+        total:
+          type: string
+          example: '159.80'
+        status:
+          type: string
+          enum: [PENDING, PAID, SHIPPED, CANCELLED]
+        created_at:
+          type: string
+          format: date-time
+    Delivery:
+      type: object
+      required: [id, order_id, assigned_to, tracking_code, status]
+      properties:
+        id:
+          type: integer
+          example: 3
+        order_id:
+          type: integer
+          example: 12
+        assigned_to:
+          type: integer
+          example: 4
+        tracking_code:
+          type: string
+          example: TRK-A1B2C3D4E5F6
+        status:
+          type: string
+          enum: [PENDING, IN_TRANSIT, DELIVERED]
+    Payment:
+      type: object
+      required: [id, order_id, amount, status, processed_by]
+      properties:
+        id:
+          type: integer
+          example: 8
+        order_id:
+          type: integer
+          example: 12
+        amount:
+          type: string
+          example: '79.90'
+        status:
+          type: string
+          enum: [PENDING, PAID, REFUSED]
+        processed_by:
+          type: integer
+          example: 5
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: Invalid request
+  responses:
+    BadRequest:
+      description: Requête mal formée ou paramètres invalides
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: JWT manquant, invalide ou expiré
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Le rôle connecté ne dispose pas des droits nécessaires
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Conflit métier, produit absent ou stock insuffisant
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Ressource introuvable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
